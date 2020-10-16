@@ -12,7 +12,9 @@ num_classes: 81
 IMPMaskRCNN:
   backbone: ResNet
   fpn: FPN
-  rpn_head: FPNRPNHead
+  rpn_head_s: FPNRPNHead
+  rpn_head_m: FPNRPNHead
+  rpn_head_l: FPNRPNHead
   roi_extractor: FPNRoIAlign
   bbox_head: BBoxHead
   bbox_assigner: BBoxAssigner
