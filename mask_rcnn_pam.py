@@ -52,7 +52,9 @@ class IMPMaskRCNN(object):
 
     def __init__(self,
                  backbone,
-                 rpn_head,
+                 rpn_head_s,
+                 rpn_head_m,
+                 rpn_head_l,
                  bbox_head='BBoxHead',
                  bbox_assigner='BBoxAssigner',
                  roi_extractor='RoIAlign',
@@ -62,7 +64,9 @@ class IMPMaskRCNN(object):
                  fpn=None):
         super(IMPMaskRCNN, self).__init__()
         self.backbone = backbone
-        self.rpn_head = rpn_head
+        self.rpn_head_s = rpn_head_s
+        self.rpn_head_m = rpn_head_m
+        self.rpn_head_l = rpn_head_l
         self.bbox_assigner = bbox_assigner
         self.roi_extractor = roi_extractor
         self.bbox_head = bbox_head
@@ -178,18 +182,21 @@ class IMPMaskRCNN(object):
             # FPN
             if self.fpn is not None:
                 body_feats, spatial_scale = self.fpn.get_output(body_feats)
-            rois = self.rpn_head.get_proposals(body_feats, im_info, mode='test')
+            rois_s = self.rpn_head.get_proposals(body_feats, im_info, mode='test')
+            rois_m = self.rpn_head.get_proposals(body_feats, im_info, mode='test')
+            rois_l = self.rpn_head.get_proposals(body_feats, im_info, mode='test')
+
             if not mask_branch:
                 im_shape = feed_vars['im_shape']
                 body_feat_names = list(body_feats.keys())
                 if self.fpn is None:
                     body_feat = body_feats[body_feat_names[-1]]
-                    roi_feat = self.roi_extractor(body_feat, rois)
+                    roi_feat = self.roi_extractor(body_feat, rois_s)
                 else:
-                    roi_feat = self.roi_extractor(body_feats, rois,
+                    roi_feat = self.roi_extractor(body_feats, rois_s,
                                                   spatial_scale)
                 pred = self.bbox_head.get_prediction(
-                    roi_feat, rois, im_info, im_shape, return_box_score=True)
+                    roi_feat, rois_s, im_info, im_shape, return_box_score=True)
                 bbox_name = 'bbox_' + str(i)
                 score_name = 'score_' + str(i)
                 if 'flip' in im.name:
