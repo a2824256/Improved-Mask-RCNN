@@ -124,8 +124,8 @@ class IMPMaskRCNN(object):
         # rois = fluid.layers.concat(input=[rois_s1, rois_s2], axis=0)
         rois_m = self.rpn_head_m.get_proposals(P4, im_info, mode=mode)
         rois_l1 = self.rpn_head_l1.get_proposals(P5, im_info, mode=mode)
-        rois = self.rpn_head_l2.get_proposals(P6, im_info, mode=mode)
-        # rois = fluid.layers.concat(input=[rois_s1, rois_s2, rois_m, rois_l1, rois_l2], axis=0)
+        rois_l2 = self.rpn_head_l2.get_proposals(P6, im_info, mode=mode)
+        rois = fluid.layers.concat(input=[rois_s1, rois_s2, rois_m, rois_l1, rois_l2], axis=0)
         if mode == 'train':
             rpn_loss1 = self.rpn_head_s1.get_loss(im_info, feed_vars['gt_bbox'], feed_vars['is_crowd'])
             rpn_loss2 = self.rpn_head_s2.get_loss(im_info, feed_vars['gt_bbox'], feed_vars['is_crowd'])
