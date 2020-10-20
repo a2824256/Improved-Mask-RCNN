@@ -1,0 +1,102 @@
+(ppdet) D:\PaddleDetection-release-0.4>python ./tools/train.py -c ./configs/mask_rcnn_r50_fpn_pam_1x.yml
+2020-10-20 12:39:35,554-INFO: If regularizer of a Parameter has been set by 'fluid.ParamAttr' or 'fluid.WeightNormParamAttr' already. The Regularization[L2Decay, regularization_coeff=0.
+000100] in Optimizer will not take effect, and it will only be applied to other Parameters!
+W1020 12:39:35.830004  3812 device_context.cc:252] Please NOTE: device: 0, CUDA Capability: 75, Driver API Version: 11.0, Runtime API Version: 10.0
+W1020 12:39:35.837980  3812 device_context.cc:260] device: 0, cuDNN Version: 7.6.
+2020-10-20 12:39:37,672-WARNING: C:\Users\lygg7/.cache/paddle/weights\ResNet50_cos_pretrained.pdparams not found, try to load model file saved with [ save_params, save_persistables, sav
+e_vars ]
+E:\ProgramData\Miniconda3\envs\ppdet\lib\site-packages\paddle\fluid\io.py:1998: UserWarning: This list is not set, Because of Paramerter not found in program. There are: fc_0.b_0 fc_0.w
+_0
+  format(" ".join(unused_para_list)))
+loading annotations into memory...
+Done (t=15.26s)
+creating index...
+index created!
+2020-10-20 12:40:16,739-INFO: places would be ommited when DataLoader is not iterable
+W1020 12:40:16.755209  3812 build_strategy.cc:170] fusion_group is not enabled for Windows/MacOS now, and only effective when running with CUDA GPU.
+1603168817      The content of rois_m layer:    The place is:CUDAPlace(0)
+Tensor[collect.tmp_2]
+        shape: [96,4,]
+        dtype: float
+        LoD: [[ 0,96, ]]
+        data: 0,76.3508,39.4064,107.999,132.003,9.51461,146.775,41.442,101.607,0,146.566,30.2602,77.674,21.2391,107.898,52.7692,85.9763,77.3872,116.511,110.455,
+1603168817      The content of rois_l1 layer:   The place is:CUDAPlace(0)
+Tensor[collect.tmp_3]
+        shape: [69,4,]
+        dtype: float
+        LoD: [[ 0,69, ]]
+        data: 49.7918,0,78.5349,26.0956,0,0,42.9374,24.1623,47.5825,0,92.2774,25.8964,56.18,0,84.2061,29.7415,16.9439,0,43.5082,20.7294,
+1603168817      The content of rois_s1 layer:   The place is:CUDAPlace(0)
+Tensor[collect.tmp_0]
+        shape: [92,4,]
+        dtype: float
+        LoD: [[ 0,92, ]]
+        data: 529.385,114.831,559.272,144.092,530.762,127.152,561.073,156.503,535.415,121.926,564.759,151.248,524.143,111.675,554.556,141.239,528.66,120.925,558.262,150.27,
+1603168817      The content of rois_l2 layer:   The place is:CUDAPlace(0)
+Tensor[collect.tmp_4]
+        shape: [55,4,]
+        dtype: float
+        LoD: [[ 0,55, ]]
+        data: 0,0,29.4637,18.683,15.8423,0,45.2825,21.7693,13.107,0,60.6997,26.6516,0,0,42.8977,23.0975,2.74374,0,50.5755,28.2675,
+1603168817      The content of rois_s2 layer:   The place is:CUDAPlace(0)
+Tensor[collect.tmp_1]
+        shape: [124,4,]
+        dtype: float
+        LoD: [[ 0,124, ]]
+        data: 65.4591,6.66639,95.5063,38.1761,71.9609,5.79194,101.379,38.0712,13.4269,6.38562,42.308,37.4716,0,165.868,24.792,196.435,150.318,82.4284,165.886,114.85,
+1603168817      The content of rois layer:      The place is:CUDAPlace(0)
+Tensor[concat_0.tmp_0]
+        shape: [436,4,]
+        dtype: float
+        LoD: [[ 0,92,216,312,381,436, ]]
+        data: 529.385,114.831,559.272,144.092,530.762,127.152,561.073,156.503,535.415,121.926,564.759,151.248,524.143,111.675,554.556,141.239,528.66,120.925,558.262,150.27,
+E:\ProgramData\Miniconda3\envs\ppdet\lib\site-packages\paddle\fluid\executor.py:1070: UserWarning: The following exception is not an EOF exception.
+  "The following exception is not an EOF exception.")
+Traceback (most recent call last):
+  File "./tools/train.py", line 373, in <module>
+    main()
+  File "./tools/train.py", line 246, in main
+    outs = exe.run(compiled_train_prog, fetch_list=train_values)
+  File "E:\ProgramData\Miniconda3\envs\ppdet\lib\site-packages\paddle\fluid\executor.py", line 1071, in run
+    six.reraise(*sys.exc_info())
+  File "E:\ProgramData\Miniconda3\envs\ppdet\lib\site-packages\six.py", line 703, in reraise
+    raise value
+  File "E:\ProgramData\Miniconda3\envs\ppdet\lib\site-packages\paddle\fluid\executor.py", line 1066, in run
+    return_merged=return_merged)
+  File "E:\ProgramData\Miniconda3\envs\ppdet\lib\site-packages\paddle\fluid\executor.py", line 1167, in _run_impl
+    return_merged=return_merged)
+  File "E:\ProgramData\Miniconda3\envs\ppdet\lib\site-packages\paddle\fluid\executor.py", line 879, in _run_parallel
+    tensors = exe.run(fetch_var_names, return_merged)._move_to_list()
+paddle.fluid.core_avx.EnforceNotMet:
+
+--------------------------------------------
+C++ Call Stacks (More useful to developers):
+--------------------------------------------
+Windows not support stack backtrace yet.
+
+------------------------------------------
+Python Call Stacks (More useful to users):
+------------------------------------------
+  File "E:\ProgramData\Miniconda3\envs\ppdet\lib\site-packages\paddle\fluid\framework.py", line 2610, in append_op
+    attrs=kwargs.get("attrs", None))
+  File "E:\ProgramData\Miniconda3\envs\ppdet\lib\site-packages\paddle\fluid\layer_helper.py", line 43, in append_op
+    return self.main_program.current_block().append_op(*args, **kwargs)
+  File "E:\ProgramData\Miniconda3\envs\ppdet\lib\site-packages\paddle\fluid\layers\detection.py", line 2610, in generate_proposal_labels
+    'is_cascade_rcnn': is_cascade_rcnn
+  File "D:\PaddleDetection-release-0.4\ppdet\core\workspace.py", line 174, in partial_apply
+    return op(*args, **kwargs_)
+  File "D:\PaddleDetection-release-0.4\ppdet\modeling\architectures\mask_rcnn_pam.py", line 162, in build
+    im_info=feed_vars['im_info'])
+  File "D:\PaddleDetection-release-0.4\ppdet\modeling\architectures\mask_rcnn_pam.py", line 398, in train
+    return self.build(feed_vars, 'train')
+  File "./tools/train.py", line 118, in main
+    train_fetches = model.train(feed_vars)
+  File "./tools/train.py", line 373, in <module>
+    main()
+
+----------------------
+Error Message Summary:
+----------------------
+Error: The start row index must be lesser than the end row index.
+  [Hint: Expected begin_idx < end_idx, but received begin_idx:16 >= end_idx:0.] at (D:\1.8.5\paddle\paddle\fluid\framework\tensor.cc:83)
+  [operator < generate_proposal_labels > error]
