@@ -1,6 +1,6 @@
 architecture: IMPMaskRCNN
 use_gpu: true
-max_iters: 180000
+max_iters: 2000
 snapshot_iter: 10000
 log_smooth_window: 20
 save_dir: output
@@ -12,9 +12,11 @@ num_classes: 81
 IMPMaskRCNN:
   backbone: ResNet
   fpn: FPN
-  rpn_head_s: FPNRPNHead
-  rpn_head_m: FPNRPNHead
-  rpn_head_l: FPNRPNHead
+  rpn_head_s1: FPNRPNHeadS
+  rpn_head_s2: FPNRPNHeadS
+  rpn_head_m: FPNRPNHeadM
+  rpn_head_l1: FPNRPNHeadL
+  rpn_head_l2: FPNRPNHeadL
   roi_extractor: FPNRoIAlign
   bbox_head: BBoxHead
   bbox_assigner: BBoxAssigner
@@ -31,13 +33,13 @@ FPN:
   num_chan: 256
   spatial_scale: [0.03125, 0.0625, 0.125, 0.25]
 
-FPNRPNHead:
+FPNRPNHeadS:
   anchor_generator:
     aspect_ratios: [0.5, 1.0, 2.0]
     variance: [1.0, 1.0, 1.0, 1.0]
   anchor_start_size: 32
-  max_level: 6
-  min_level: 2
+  max_level: 1
+  min_level: 1
   num_chan: 256
   rpn_target_assign:
     rpn_batch_size_per_im: 256
@@ -48,13 +50,65 @@ FPNRPNHead:
   train_proposal:
     min_size: 0.0
     nms_thresh: 0.7
-    pre_nms_top_n: 2000
-    post_nms_top_n: 2000
+    pre_nms_top_n: 400
+    post_nms_top_n: 400
   test_proposal:
     min_size: 0.0
     nms_thresh: 0.7
-    pre_nms_top_n: 1000
-    post_nms_top_n: 1000
+    pre_nms_top_n: 200
+    post_nms_top_n: 200
+
+
+FPNRPNHeadM:
+  anchor_generator:
+    aspect_ratios: [0.5, 1.0, 2.0]
+    variance: [1.0, 1.0, 1.0, 1.0]
+  anchor_start_size: 32
+  max_level: 1
+  min_level: 1
+  num_chan: 256
+  rpn_target_assign:
+    rpn_batch_size_per_im: 256
+    rpn_fg_fraction: 0.5
+    rpn_negative_overlap: 0.3
+    rpn_positive_overlap: 0.7
+    rpn_straddle_thresh: 0.0
+  train_proposal:
+    min_size: 0.0
+    nms_thresh: 0.7
+    pre_nms_top_n: 400
+    post_nms_top_n: 400
+  test_proposal:
+    min_size: 0.0
+    nms_thresh: 0.7
+    pre_nms_top_n: 200
+    post_nms_top_n: 200
+
+
+FPNRPNHeadL:
+  anchor_generator:
+    aspect_ratios: [0.5, 1.0, 2.0]
+    variance: [1.0, 1.0, 1.0, 1.0]
+  anchor_start_size: 32
+  max_level: 1
+  min_level: 1
+  num_chan: 256
+  rpn_target_assign:
+    rpn_batch_size_per_im: 256
+    rpn_fg_fraction: 0.5
+    rpn_negative_overlap: 0.3
+    rpn_positive_overlap: 0.7
+    rpn_straddle_thresh: 0.0
+  train_proposal:
+    min_size: 0.0
+    nms_thresh: 0.7
+    pre_nms_top_n: 400
+    post_nms_top_n: 400
+  test_proposal:
+    min_size: 0.0
+    nms_thresh: 0.7
+    pre_nms_top_n: 200
+    post_nms_top_n: 200
 
 FPNRoIAlign:
   canconical_level: 4
@@ -64,6 +118,7 @@ FPNRoIAlign:
   sampling_ratio: 2
   box_resolution: 7
   mask_resolution: 14
+
 
 MaskHead:
   dilation: 1
@@ -97,7 +152,7 @@ LearningRate:
   schedulers:
   - !PiecewiseDecay
     gamma: 0.1
-    milestones: [120000, 160000]
+    milestones: [1000, 1500]
   - !LinearWarmup
     start_factor: 0.3333333333333333
     steps: 500
