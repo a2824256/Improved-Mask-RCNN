@@ -18,7 +18,7 @@ from __future__ import print_function
 
 from collections import OrderedDict
 import copy
-
+import collections
 import paddle.fluid as fluid
 
 from ppdet.experimental import mixed_precision_global_state
@@ -46,15 +46,17 @@ class IMPMaskRCNN(object):
 
     __category__ = 'architecture'
     __inject__ = [
-        'backbone', 'rpn_head', 'bbox_assigner', 'roi_extractor', 'bbox_head',
+        'backbone', 'rpn_head_s1', 'rpn_head_s2', 'rpn_head_m', 'rpn_head_l1', 'rpn_head_l2', 'bbox_assigner', 'roi_extractor', 'bbox_head',
         'mask_assigner', 'mask_head', 'fpn'
     ]
 
     def __init__(self,
                  backbone,
-                 rpn_head_s,
+                 rpn_head_s1,
+                 rpn_head_s2,
                  rpn_head_m,
-                 rpn_head_l,
+                 rpn_head_l1,
+                 rpn_head_l2,
                  bbox_head='BBoxHead',
                  bbox_assigner='BBoxAssigner',
                  roi_extractor='RoIAlign',
@@ -64,9 +66,11 @@ class IMPMaskRCNN(object):
                  fpn=None):
         super(IMPMaskRCNN, self).__init__()
         self.backbone = backbone
-        self.rpn_head_s = rpn_head_s
+        self.rpn_head_s1 = rpn_head_s1
+        self.rpn_head_s2 = rpn_head_s2
         self.rpn_head_m = rpn_head_m
-        self.rpn_head_l = rpn_head_l
+        self.rpn_head_l1 = rpn_head_l1
+        self.rpn_head_l2 = rpn_head_l2
         self.bbox_assigner = bbox_assigner
         self.roi_extractor = roi_extractor
         self.bbox_head = bbox_head
@@ -103,15 +107,36 @@ class IMPMaskRCNN(object):
         spatial_scale = None
         if self.fpn is not None:
             body_feats, spatial_scale = self.fpn.get_output(body_feats)
+        P2 = collections.OrderedDict()
+        P2['fpn_res2_sum'] = body_feats['fpn_res2_sum']
+        P3 = collections.OrderedDict()
+        P3['fpn_res3_sum'] = body_feats['fpn_res3_sum']
+        P4 = collections.OrderedDict()
+        P4['fpn_res4_sum'] = body_feats['fpn_res4_sum']
+        P5 = collections.OrderedDict()
+        P5['fpn_res5_sum'] = body_feats['fpn_res5_sum']
+        P6 = collections.OrderedDict()
+        P6['fpn_res5_sum_subsampled_2x'] = body_feats['fpn_res5_sum_subsampled_2x']
         # RPN proposals
         # 添加多路rpn再做特征融合
-        rois = self.rpn_head.get_proposals(body_feats, im_info, mode=mode)
-        print(im_info)
-        exit()
+        rois_s1 = self.rpn_head_s1.get_proposals(P2, im_info, mode=mode)
+        rois_s2 = self.rpn_head_s2.get_proposals(P3, im_info, mode=mode)
+        # rois = fluid.layers.concat(input=[rois_s1, rois_s2], axis=0)
+        rois_m = self.rpn_head_m.get_proposals(P4, im_info, mode=mode)
+        rois_l1 = self.rpn_head_l1.get_proposals(P5, im_info, mode=mode)
+        rois = self.rpn_head_l2.get_proposals(P6, im_info, mode=mode)
+        # rois = fluid.layers.concat(input=[rois_s1, rois_s2, rois_m, rois_l1, rois_l2], axis=0)
         if mode == 'train':
-            rpn_loss = self.rpn_head.get_loss(im_info, feed_vars['gt_bbox'],
-                                              feed_vars['is_crowd'])
-
+            rpn_loss1 = self.rpn_head_s1.get_loss(im_info, feed_vars['gt_bbox'], feed_vars['is_crowd'])
+            rpn_loss2 = self.rpn_head_s2.get_loss(im_info, feed_vars['gt_bbox'], feed_vars['is_crowd'])
+            rpn_loss3 = self.rpn_head_m.get_loss(im_info, feed_vars['gt_bbox'], feed_vars['is_crowd'])
+            rpn_loss4 = self.rpn_head_l1.get_loss(im_info, feed_vars['gt_bbox'], feed_vars['is_crowd'])
+            rpn_loss5 = self.rpn_head_l2.get_loss(im_info, feed_vars['gt_bbox'], feed_vars['is_crowd'])
+            loss_rpn_cls = fluid.layers.concat(input=[rpn_loss1['loss_rpn_cls'], rpn_loss2['loss_rpn_cls'], rpn_loss3['loss_rpn_cls'], rpn_loss4['loss_rpn_cls'], rpn_loss5['loss_rpn_cls']], axis=0)
+            loss_rpn_bbox = fluid.layers.concat(input=[rpn_loss1['loss_rpn_bbox'], rpn_loss2['loss_rpn_bbox'], rpn_loss3['loss_rpn_bbox'], rpn_loss4['loss_rpn_bbox'], rpn_loss5['loss_rpn_bbox']], axis=0)
+            loss_rpn_cls_loss = fluid.layers.mean(loss_rpn_cls)
+            loss_rpn_bbox_loss = fluid.layers.mean(loss_rpn_bbox)
+            rpn_loss = {'loss_rpn_cls':loss_rpn_cls_loss, 'loss_rpn_cls':loss_rpn_bbox_loss}
             outs = self.bbox_assigner(
                 rpn_rois=rois,
                 gt_classes=feed_vars['gt_class'],
@@ -182,21 +207,36 @@ class IMPMaskRCNN(object):
             # FPN
             if self.fpn is not None:
                 body_feats, spatial_scale = self.fpn.get_output(body_feats)
-            rois_s = self.rpn_head.get_proposals(body_feats, im_info, mode='test')
-            rois_m = self.rpn_head.get_proposals(body_feats, im_info, mode='test')
-            rois_l = self.rpn_head.get_proposals(body_feats, im_info, mode='test')
+            P2 = collections.OrderedDict()
+            P2['fpn_res2_sum'] = body_feats['fpn_res2_sum']
+            P3 = collections.OrderedDict()
+            P3['fpn_res3_sum'] = body_feats['fpn_res3_sum']
+            P4 = collections.OrderedDict()
+            P4['fpn_res4_sum'] = body_feats['fpn_res4_sum']
+            P5 = collections.OrderedDict()
+            P5['fpn_res5_sum'] = body_feats['fpn_res5_sum']
+            P6 = collections.OrderedDict()
+            P6['fpn_res5_sum_subsampled_2x'] = body_feats['fpn_res5_sum_subsampled_2x']
+            # RPN proposals
+            # 添加多路rpn再做特征融合
+            rois_s1 = self.rpn_head_s1.get_proposals(P2, im_info, mode='test')
+            rois_s2 = self.rpn_head_s2.get_proposals(P3, im_info, mode='test')
+            rois_m = self.rpn_head_m.get_proposals(P4, im_info, mode='test')
+            rois_l1 = self.rpn_head_l1.get_proposals(P5, im_info, mode='test')
+            rois_l2 = self.rpn_head_l2.get_proposals(P6, im_info, mode='test')
+            rois = fluid.layers.concat(input=[rois_s1, rois_s2, rois_m, rois_l1, rois_l2], axis=0)
 
             if not mask_branch:
                 im_shape = feed_vars['im_shape']
                 body_feat_names = list(body_feats.keys())
                 if self.fpn is None:
                     body_feat = body_feats[body_feat_names[-1]]
-                    roi_feat = self.roi_extractor(body_feat, rois_s)
+                    roi_feat = self.roi_extractor(body_feat, rois)
                 else:
-                    roi_feat = self.roi_extractor(body_feats, rois_s,
+                    roi_feat = self.roi_extractor(body_feats, rois,
                                                   spatial_scale)
                 pred = self.bbox_head.get_prediction(
-                    roi_feat, rois_s, im_info, im_shape, return_box_score=True)
+                    roi_feat, rois, im_info, im_shape, return_box_score=True)
                 bbox_name = 'bbox_' + str(i)
                 score_name = 'score_' + str(i)
                 if 'flip' in im.name:
