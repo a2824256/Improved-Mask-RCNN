@@ -20,7 +20,7 @@ from collections import OrderedDict
 import copy
 import collections
 import paddle.fluid as fluid
-
+import numpy as np
 from ppdet.experimental import mixed_precision_global_state
 from ppdet.core.workspace import register
 
@@ -79,6 +79,17 @@ class IMPMaskRCNN(object):
         self.rpn_only = rpn_only
         self.fpn = fpn
 
+    def LodTensor_to_Tensor(self, lod_tensor):
+        # 获取 LoD-Tensor 的 lod 信息
+        lod = lod_tensor.lod()
+        # 转换成 array
+        array = np.array(lod_tensor)
+        new_array = []
+        # 依照原LoD-Tensor的层级信息，转换成Tensor
+        for i in range(len(lod[0]) - 1):
+            new_array.append(array[lod[0][i]:lod[0][i + 1]])
+        return new_array
+
     def build(self, feed_vars, mode='train'):
         if mode == 'train':
             required_fields = [
@@ -107,25 +118,23 @@ class IMPMaskRCNN(object):
         spatial_scale = None
         if self.fpn is not None:
             body_feats, spatial_scale = self.fpn.get_output(body_feats)
-        P2 = collections.OrderedDict()
-        P2['fpn_res2_sum'] = body_feats['fpn_res2_sum']
-        P3 = collections.OrderedDict()
-        P3['fpn_res3_sum'] = body_feats['fpn_res3_sum']
-        P4 = collections.OrderedDict()
-        P4['fpn_res4_sum'] = body_feats['fpn_res4_sum']
-        P5 = collections.OrderedDict()
-        P5['fpn_res5_sum'] = body_feats['fpn_res5_sum']
-        P6 = collections.OrderedDict()
-        P6['fpn_res5_sum_subsampled_2x'] = body_feats['fpn_res5_sum_subsampled_2x']
-        # RPN proposals
         # 添加多路rpn再做特征融合
-        rois_s1 = self.rpn_head_s1.get_proposals(P2, im_info, mode=mode)
-        rois_s2 = self.rpn_head_s2.get_proposals(P3, im_info, mode=mode)
-        # rois = fluid.layers.concat(input=[rois_s1, rois_s2], axis=0)
-        rois_m = self.rpn_head_m.get_proposals(P4, im_info, mode=mode)
-        rois_l1 = self.rpn_head_l1.get_proposals(P5, im_info, mode=mode)
-        rois_l2 = self.rpn_head_l2.get_proposals(P6, im_info, mode=mode)
-        rois = fluid.layers.concat(input=[rois_s1, rois_s2, rois_m, rois_l1, rois_l2], axis=0)
+        rois_s1, rois_s1_probs = self.rpn_head_s1._get_single_proposals(body_feats['fpn_res2_sum'], im_info, 1, mode=mode)
+        rois_s2, rois_s2_probs = self.rpn_head_s2._get_single_proposals(body_feats['fpn_res3_sum'], im_info, 1, mode=mode)
+        rois_m, rois_m_probs = self.rpn_head_m._get_single_proposals(body_feats['fpn_res4_sum'], im_info, 1, mode=mode)
+        rois_l1, rois_l1_probs = self.rpn_head_l1._get_single_proposals(body_feats['fpn_res5_sum'], im_info, 1, mode=mode)
+        rois_l2, rois_l2_probs = self.rpn_head_l2._get_single_proposals(body_feats['fpn_res5_sum_subsampled_2x'], im_info, 1, mode=mode)
+        rois_list = [rois_s1, rois_s2, rois_m, rois_l1, rois_l2]
+        roi_probs_list = [rois_s1_probs, rois_s2_probs, rois_m_probs, rois_l1_probs, rois_l2_probs]
+        rois = fluid.layers.collect_fpn_proposals(
+            rois_list,
+            roi_probs_list,
+            2,
+            6,
+            2000,
+            name='collect')
+
+        # rois = fluid.layers.concat(input=[rois_s1, rois_s2, rois_m, rois_l1, rois_l2], axis=0)
         if mode == 'train':
             rpn_loss1 = self.rpn_head_s1.get_loss(im_info, feed_vars['gt_bbox'], feed_vars['is_crowd'])
             rpn_loss2 = self.rpn_head_s2.get_loss(im_info, feed_vars['gt_bbox'], feed_vars['is_crowd'])
@@ -136,7 +145,7 @@ class IMPMaskRCNN(object):
             loss_rpn_bbox = fluid.layers.concat(input=[rpn_loss1['loss_rpn_bbox'], rpn_loss2['loss_rpn_bbox'], rpn_loss3['loss_rpn_bbox'], rpn_loss4['loss_rpn_bbox'], rpn_loss5['loss_rpn_bbox']], axis=0)
             loss_rpn_cls_loss = fluid.layers.mean(loss_rpn_cls)
             loss_rpn_bbox_loss = fluid.layers.mean(loss_rpn_bbox)
-            rpn_loss = {'loss_rpn_cls':loss_rpn_cls_loss, 'loss_rpn_cls':loss_rpn_bbox_loss}
+            rpn_loss = {'loss_rpn_cls': loss_rpn_cls_loss, 'loss_rpn_cls': loss_rpn_bbox_loss}
             outs = self.bbox_assigner(
                 rpn_rois=rois,
                 gt_classes=feed_vars['gt_class'],
@@ -146,11 +155,11 @@ class IMPMaskRCNN(object):
             rois = outs[0]
             labels_int32 = outs[1]
 
-            if self.fpn is None:
-                last_feat = body_feats[list(body_feats.keys())[-1]]
-                roi_feat = self.roi_extractor(last_feat, rois)
-            else:
-                roi_feat = self.roi_extractor(body_feats, rois, spatial_scale)
+            # if self.fpn is None:
+            #     last_feat = body_feats[list(body_feats.keys())[-1]]
+            #     roi_feat = self.roi_extractor(last_feat, rois)
+            # else:
+            roi_feat = self.roi_extractor(body_feats, rois, spatial_scale)
 
             loss = self.bbox_head.get_loss(roi_feat, labels_int32, *outs[2:])
             loss.update(rpn_loss)
