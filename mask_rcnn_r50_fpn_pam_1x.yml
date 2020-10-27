@@ -1,7 +1,7 @@
 architecture: IMPMaskRCNN
 use_gpu: true
-max_iters: 2000
-snapshot_iter: 10000
+max_iters: 400
+snapshot_iter: 200
 log_smooth_window: 20
 save_dir: output
 pretrain_weights: https://paddle-imagenet-models-name.bj.bcebos.com/ResNet50_cos_pretrained.tar
@@ -148,14 +148,14 @@ TwoFCHead:
   mlp_dim: 1024
 
 LearningRate:
-  base_lr: 0.01
+  base_lr: 0.0001
   schedulers:
   - !PiecewiseDecay
     gamma: 0.1
-    milestones: [1000, 1500]
+    milestones: [100, 150]
   - !LinearWarmup
-    start_factor: 0.3333333333333333
-    steps: 500
+    start_factor: 0.03
+    steps: 100
 
 OptimizerBuilder:
   optimizer:
