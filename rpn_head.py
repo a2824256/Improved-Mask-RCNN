@@ -370,7 +370,7 @@ class RPNHeadS(object):
                 regularizer=L2Decay(0.)))
         return self.rpn_cls_score, self.rpn_bbox_pred
 
-    def get_proposals(self, body_feats, im_info, mode='train'):
+    def get_proposals(self, body_feats, im_info, mode='train', score=False):
         """
         Get proposals according to the output of backbone.
 
@@ -415,7 +415,11 @@ class RPNHeadS(object):
             im_info=im_info,
             anchors=self.anchor,
             variances=self.anchor_var)
-        return rpn_rois
+        print("---------------")
+        if score:
+            return rpn_rois, rpn_roi_probs
+        else:
+            return rpn_rois
 
     def _transform_input(self, rpn_cls_score, rpn_bbox_pred, anchor,
                          anchor_var):
@@ -609,7 +613,7 @@ class RPNHeadM(object):
                 regularizer=L2Decay(0.)))
         return self.rpn_cls_score, self.rpn_bbox_pred
 
-    def get_proposals(self, body_feats, im_info, mode='train'):
+    def get_proposals(self, body_feats, im_info, mode='train', score=False):
         """
         Get proposals according to the output of backbone.
 
@@ -654,7 +658,10 @@ class RPNHeadM(object):
             im_info=im_info,
             anchors=self.anchor,
             variances=self.anchor_var)
-        return rpn_rois
+        if score:
+            return rpn_rois, rpn_roi_probs
+        else:
+            return rpn_rois
 
     def _transform_input(self, rpn_cls_score, rpn_bbox_pred, anchor,
                          anchor_var):
@@ -848,7 +855,7 @@ class RPNHeadL(object):
                 regularizer=L2Decay(0.)))
         return self.rpn_cls_score, self.rpn_bbox_pred
 
-    def get_proposals(self, body_feats, im_info, mode='train'):
+    def get_proposals(self, body_feats, im_info, mode='train', score=False):
         """
         Get proposals according to the output of backbone.
 
@@ -893,7 +900,10 @@ class RPNHeadL(object):
             im_info=im_info,
             anchors=self.anchor,
             variances=self.anchor_var)
-        return rpn_rois
+        if score:
+            return rpn_rois, rpn_roi_probs
+        else:
+            return rpn_rois
 
     def _transform_input(self, rpn_cls_score, rpn_bbox_pred, anchor,
                          anchor_var):
@@ -1201,6 +1211,8 @@ class FPNRPNHead(RPNHead):
         anchors = []
         anchor_vars = []
         for i in range(len(self.fpn_rpn_list)):
+            print(self.fpn_rpn_list[i][0].shape)
+            exit()
             single_input = self._transform_input(
                 self.fpn_rpn_list[i][0], self.fpn_rpn_list[i][1],
                 self.anchors_list[i], self.anchor_var_list[i])
@@ -1334,6 +1346,7 @@ class FPNRPNHeadS(RPNHead):
                 name=bbox_share_name + '_b',
                 learning_rate=2.,
                 regularizer=L2Decay(0.)))
+        self.fpn_rpn_list.append((self.rpn_cls_score, self.rpn_bbox_pred))
         return self.rpn_cls_score, self.rpn_bbox_pred
 
     def _get_single_proposals(self, body_feat, im_info, feat_lvl, mode='train'):
@@ -1383,9 +1396,11 @@ class FPNRPNHeadS(RPNHead):
             im_info=im_info,
             anchors=self.anchors,
             variances=self.anchor_var)
+        self.anchors_list.append(self.anchors)
+        self.anchor_var_list.append(self.anchor_var)
         return rpn_rois_fpn, rpn_roi_prob_fpn
 
-    def get_proposals(self, fpn_feats, im_info, mode='train'):
+    def get_proposals(self, fpn_feats, im_info, mode='train', score=False):
         """
         Get proposals in multiple levels according to the output of fpn
         rpn head
@@ -1405,8 +1420,7 @@ class FPNRPNHeadS(RPNHead):
         for lvl in range(self.min_level, self.max_level + 1):
             fpn_feat_name = fpn_feat_names[self.max_level - lvl]
             fpn_feat = fpn_feats[fpn_feat_name]
-            rois_fpn, roi_probs_fpn = self._get_single_proposals(
-                fpn_feat, im_info, lvl, mode)
+            rois_fpn, roi_probs_fpn = self._get_single_proposals(fpn_feat, im_info, lvl, mode)
             self.fpn_rpn_list.append((self.rpn_cls_score, self.rpn_bbox_pred))
             rois_list.append(rois_fpn)
             roi_probs_list.append(roi_probs_fpn)
@@ -1414,6 +1428,7 @@ class FPNRPNHeadS(RPNHead):
             self.anchor_var_list.append(self.anchor_var)
         prop_op = self.train_proposal if mode == 'train' else self.test_proposal
         post_nms_top_n = prop_op.post_nms_top_n
+        # rois集合
         rois_collect = fluid.layers.collect_fpn_proposals(
             rois_list,
             roi_probs_list,
@@ -1436,7 +1451,6 @@ class FPNRPNHeadS(RPNHead):
             rpn_bboxes.append(single_input[1])
             anchors.append(single_input[2])
             anchor_vars.append(single_input[3])
-
         rpn_cls = fluid.layers.concat(rpn_clses, axis=1)
         rpn_bbox = fluid.layers.concat(rpn_bboxes, axis=1)
         anchors = fluid.layers.concat(anchors)
@@ -1562,6 +1576,7 @@ class FPNRPNHeadM(RPNHead):
                 name=bbox_share_name + '_b',
                 learning_rate=2.,
                 regularizer=L2Decay(0.)))
+        self.fpn_rpn_list.append((self.rpn_cls_score, self.rpn_bbox_pred))
         return self.rpn_cls_score, self.rpn_bbox_pred
 
     def _get_single_proposals(self, body_feat, im_info, feat_lvl, mode='train'):
@@ -1611,6 +1626,8 @@ class FPNRPNHeadM(RPNHead):
             im_info=im_info,
             anchors=self.anchors,
             variances=self.anchor_var)
+        self.anchors_list.append(self.anchors)
+        self.anchor_var_list.append(self.anchor_var)
         return rpn_rois_fpn, rpn_roi_prob_fpn
 
     def get_proposals(self, fpn_feats, im_info, mode='train'):
@@ -1790,6 +1807,7 @@ class FPNRPNHeadL(RPNHead):
                 name=bbox_share_name + '_b',
                 learning_rate=2.,
                 regularizer=L2Decay(0.)))
+        self.fpn_rpn_list.append((self.rpn_cls_score, self.rpn_bbox_pred))
         return self.rpn_cls_score, self.rpn_bbox_pred
 
     def _get_single_proposals(self, body_feat, im_info, feat_lvl, mode='train'):
@@ -1839,6 +1857,8 @@ class FPNRPNHeadL(RPNHead):
             im_info=im_info,
             anchors=self.anchors,
             variances=self.anchor_var)
+        self.anchors_list.append(self.anchors)
+        self.anchor_var_list.append(self.anchor_var)
         return rpn_rois_fpn, rpn_roi_prob_fpn
 
     def get_proposals(self, fpn_feats, im_info, mode='train'):
