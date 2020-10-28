@@ -118,16 +118,6 @@ class IMPMaskRCNN(object):
         spatial_scale = None
         if self.fpn is not None:
             body_feats, spatial_scale = self.fpn.get_output(body_feats)
-        # P2 = collections.OrderedDict()
-        # P2['fpn_res2_sum'] = body_feats['fpn_res2_sum']
-        # P3 = collections.OrderedDict()
-        # P3['fpn_res3_sum'] = body_feats['fpn_res3_sum']
-        # P4 = collections.OrderedDict()
-        # P4['fpn_res4_sum'] = body_feats['fpn_res4_sum']
-        # P5 = collections.OrderedDict()
-        # P5['fpn_res5_sum'] = body_feats['fpn_res5_sum']
-        # P6 = collections.OrderedDict()
-        # P6['fpn_res5_sum_subsampled_2x'] = body_feats['fpn_res5_sum_subsampled_2x']
         # RPN proposals
         # 添加多路rpn再做特征融合
         rois_s1, rois_s1_probs = self.rpn_head_s1._get_single_proposals(body_feats['fpn_res2_sum'], im_info, 1, mode=mode)
