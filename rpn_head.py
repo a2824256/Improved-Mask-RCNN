@@ -1918,3 +1918,4 @@ class FPNRPNHeadL(RPNHead):
         anchors = fluid.layers.concat(anchors)
         anchor_var = fluid.layers.concat(anchor_vars)
         return rpn_cls, rpn_bbox, anchors, anchor_var
+ 
