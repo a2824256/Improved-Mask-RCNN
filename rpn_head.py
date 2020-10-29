@@ -25,7 +25,8 @@ from ppdet.core.workspace import register
 from ppdet.modeling.ops import (AnchorGenerator, RPNTargetAssign,
                                 GenerateProposals)
 
-__all__ = ['RPNTargetAssign', 'GenerateProposals', 'RPNHead', 'RPNHeadS', 'RPNHeadM', 'RPNHeadL', 'FPNRPNHead', 'FPNRPNHeadS',
+__all__ = ['RPNTargetAssign', 'GenerateProposals', 'RPNHead', 'RPNHeadS', 'RPNHeadM', 'RPNHeadL', 'MSFPNRPNHead', 'FPNRPNHead',
+           'FPNRPNHeadS',
            'FPNRPNHeadM', 'FPNRPNHeadL']
 
 
@@ -267,6 +268,7 @@ class RPNHead(object):
         rpn_reg_loss = rpn_reg_loss / norm
 
         return {'loss_rpn_cls': rpn_cls_loss, 'loss_rpn_bbox': rpn_reg_loss}
+
 
 @register
 class RPNHeadS(object):
@@ -511,6 +513,7 @@ class RPNHeadS(object):
 
         return {'loss_rpn_cls': rpn_cls_loss, 'loss_rpn_bbox': rpn_reg_loss}
 
+
 @register
 class RPNHeadM(object):
     """
@@ -752,6 +755,7 @@ class RPNHeadM(object):
         rpn_reg_loss = rpn_reg_loss / norm
 
         return {'loss_rpn_cls': rpn_cls_loss, 'loss_rpn_bbox': rpn_reg_loss}
+
 
 @register
 class RPNHeadL(object):
@@ -996,7 +1000,6 @@ class RPNHeadL(object):
         return {'loss_rpn_cls': rpn_cls_loss, 'loss_rpn_bbox': rpn_reg_loss}
 
 
-
 @register
 class FPNRPNHead(RPNHead):
     """
@@ -1024,6 +1027,7 @@ class FPNRPNHead(RPNHead):
                  rpn_target_assign=RPNTargetAssign().__dict__,
                  train_proposal=GenerateProposals(12000, 2000).__dict__,
                  test_proposal=GenerateProposals().__dict__,
+                 mapping_relation=None,
                  anchor_start_size=32,
                  num_chan=256,
                  min_level=2,
@@ -1084,8 +1088,238 @@ class FPNRPNHead(RPNHead):
         self.anchors, self.anchor_var = self.anchor_generator(
             input=conv_rpn_fpn,
             anchor_sizes=(self.anchor_start_size * 2.
-                          **(feat_lvl - self.min_level), ),
-            stride=(2.**feat_lvl, 2.**feat_lvl))
+                          ** (feat_lvl - self.min_level),),
+            stride=(2. ** feat_lvl, 2. ** feat_lvl))
+
+        cls_num_filters = num_anchors * self.num_classes
+        self.rpn_cls_score = fluid.layers.conv2d(
+            input=conv_rpn_fpn,
+            num_filters=cls_num_filters,
+            filter_size=1,
+            act=None,
+            name=cls_name,
+            param_attr=ParamAttr(
+                name=cls_share_name + '_w',
+                initializer=Normal(
+                    loc=0., scale=0.01)),
+            bias_attr=ParamAttr(
+                name=cls_share_name + '_b',
+                learning_rate=2.,
+                regularizer=L2Decay(0.)))
+        self.rpn_bbox_pred = fluid.layers.conv2d(
+            input=conv_rpn_fpn,
+            num_filters=num_anchors * 4,
+            filter_size=1,
+            act=None,
+            name=bbox_name,
+            param_attr=ParamAttr(
+                name=bbox_share_name + '_w',
+                initializer=Normal(
+                    loc=0., scale=0.01)),
+            bias_attr=ParamAttr(
+                name=bbox_share_name + '_b',
+                learning_rate=2.,
+                regularizer=L2Decay(0.)))
+        return self.rpn_cls_score, self.rpn_bbox_pred
+
+    def _get_single_proposals(self, body_feat, im_info, feat_lvl, mode='train'):
+        """
+        Get proposals in one level according to the output of fpn rpn head
+
+        Args:
+            body_feat(Variable): the feature map from backone.
+            im_info(Variable): The information of image with shape [N, 3] with
+                format (height, width, scale).
+            feat_lvl(int): Indicate the level of proposals corresponding to
+                the feature maps.
+
+        Returns:
+            rpn_rois_fpn(Variable): Output proposals with shape of (rois_num, 4).
+            rpn_roi_probs_fpn(Variable): Scores of proposals with
+                shape of (rois_num, 1).
+        """
+
+        rpn_cls_score_fpn, rpn_bbox_pred_fpn = self._get_output(body_feat,
+                                                                feat_lvl)
+
+        prop_op = self.train_proposal if mode == 'train' else self.test_proposal
+        if self.num_classes == 1:
+            rpn_cls_prob_fpn = fluid.layers.sigmoid(
+                rpn_cls_score_fpn, name='rpn_cls_prob_fpn' + str(feat_lvl))
+        else:
+            rpn_cls_score_fpn = fluid.layers.transpose(
+                rpn_cls_score_fpn, perm=[0, 2, 3, 1])
+            rpn_cls_score_fpn = fluid.layers.reshape(
+                rpn_cls_score_fpn, shape=(0, 0, 0, -1, self.num_classes))
+            rpn_cls_prob_fpn = fluid.layers.softmax(
+                rpn_cls_score_fpn,
+                use_cudnn=False,
+                name='rpn_cls_prob_fpn' + str(feat_lvl))
+            rpn_cls_prob_fpn = fluid.layers.slice(
+                rpn_cls_prob_fpn, axes=[4], starts=[1],
+                ends=[self.num_classes])
+            rpn_cls_prob_fpn, _ = fluid.layers.topk(rpn_cls_prob_fpn, 1)
+            rpn_cls_prob_fpn = fluid.layers.reshape(
+                rpn_cls_prob_fpn, shape=(0, 0, 0, -1))
+            rpn_cls_prob_fpn = fluid.layers.transpose(
+                rpn_cls_prob_fpn, perm=[0, 3, 1, 2])
+        rpn_rois_fpn, rpn_roi_prob_fpn = prop_op(
+            scores=rpn_cls_prob_fpn,
+            bbox_deltas=rpn_bbox_pred_fpn,
+            im_info=im_info,
+            anchors=self.anchors,
+            variances=self.anchor_var)
+        return rpn_rois_fpn, rpn_roi_prob_fpn
+
+    def get_proposals(self, fpn_feats, im_info, mode='train'):
+        """
+        Get proposals in multiple levels according to the output of fpn
+        rpn head
+
+        Args:
+            fpn_feats(dict): A dictionary represents the output feature map
+                of FPN with their name.
+            im_info(Variable): The information of image with shape [N, 3] with
+                format (height, width, scale).
+
+        Return:
+            rois_list(Variable): Output proposals in shape of [rois_num, 4]
+        """
+        rois_list = []
+        roi_probs_list = []
+        fpn_feat_names = list(fpn_feats.keys())
+        for lvl in range(self.min_level, self.max_level + 1):
+            fpn_feat_name = fpn_feat_names[self.max_level - lvl]
+            fpn_feat = fpn_feats[fpn_feat_name]
+            rois_fpn, roi_probs_fpn = self._get_single_proposals(
+                fpn_feat, im_info, lvl, mode)
+            self.fpn_rpn_list.append((self.rpn_cls_score, self.rpn_bbox_pred))
+            rois_list.append(rois_fpn)
+            roi_probs_list.append(roi_probs_fpn)
+            self.anchors_list.append(self.anchors)
+            self.anchor_var_list.append(self.anchor_var)
+        prop_op = self.train_proposal if mode == 'train' else self.test_proposal
+        post_nms_top_n = prop_op.post_nms_top_n
+        rois_collect = fluid.layers.collect_fpn_proposals(
+            rois_list,
+            roi_probs_list,
+            self.min_level,
+            self.max_level,
+            post_nms_top_n,
+            name='collect')
+        return rois_collect
+
+    def _get_loss_input(self):
+        rpn_clses = []
+        rpn_bboxes = []
+        anchors = []
+        anchor_vars = []
+        for i in range(len(self.fpn_rpn_list)):
+            print(self.fpn_rpn_list[i][0].shape)
+            exit()
+            single_input = self._transform_input(
+                self.fpn_rpn_list[i][0], self.fpn_rpn_list[i][1],
+                self.anchors_list[i], self.anchor_var_list[i])
+            rpn_clses.append(single_input[0])
+            rpn_bboxes.append(single_input[1])
+            anchors.append(single_input[2])
+            anchor_vars.append(single_input[3])
+
+        rpn_cls = fluid.layers.concat(rpn_clses, axis=1)
+        rpn_bbox = fluid.layers.concat(rpn_bboxes, axis=1)
+        anchors = fluid.layers.concat(anchors)
+        anchor_var = fluid.layers.concat(anchor_vars)
+        return rpn_cls, rpn_bbox, anchors, anchor_var
+
+@register
+class MSFPNRPNHead(RPNHead):
+    """
+    RPN Head that supports FPN input
+
+    Args:
+        anchor_generator (object): `AnchorGenerator` instance
+        rpn_target_assign (object): `RPNTargetAssign` instance
+        train_proposal (object): `GenerateProposals` instance for training
+        test_proposal (object): `GenerateProposals` instance for testing
+        anchor_start_size (int): size of anchor at the first scale
+        num_chan (int): number of FPN output channels
+        min_level (int): lowest level of FPN output
+        max_level (int): highest level of FPN output
+        num_classes (int): number of classes in rpn output
+    """
+
+    __inject__ = [
+        'anchor_generator', 'rpn_target_assign', 'train_proposal',
+        'test_proposal'
+    ]
+
+    def __init__(self,
+                 anchor_generator=AnchorGenerator().__dict__,
+                 rpn_target_assign=RPNTargetAssign().__dict__,
+                 train_proposal=GenerateProposals(12000, 2000).__dict__,
+                 test_proposal=GenerateProposals().__dict__,
+                 anchor_start_size=32,
+                 num_chan=256,
+                 min_level=2,
+                 max_level=6,
+                 num_classes=1):
+        super(MSFPNRPNHead, self).__init__(anchor_generator, rpn_target_assign,
+                                         train_proposal, test_proposal)
+        self.anchor_start_size = anchor_start_size
+        self.num_chan = num_chan
+        self.min_level = min_level
+        self.max_level = max_level
+        self.num_classes = num_classes
+
+        self.fpn_rpn_list = []
+        self.anchors_list = []
+        self.anchor_var_list = []
+
+    def _get_output(self, input, feat_lvl):
+        """
+        Get anchor and FPN RPN head output at one level.
+
+        Args:
+            input(Variable): Body feature from backbone.
+            feat_lvl(int): Indicate the level of rpn output corresponding
+                to the level of feature map.
+
+        Return:
+            rpn_cls_score(Variable): Output of one level of fpn rpn head with
+                shape of [N, num_anchors, H, W].
+            rpn_bbox_pred(Variable): Output of one level of fpn rpn head with
+                shape of [N, num_anchors * 4, H, W].
+        """
+        slvl = str(feat_lvl)
+        conv_name = 'conv_rpn_fpn' + slvl
+        cls_name = 'rpn_cls_logits_fpn' + slvl
+        bbox_name = 'rpn_bbox_pred_fpn' + slvl
+        conv_share_name = 'conv_rpn_fpn' + str(self.min_level)
+        cls_share_name = 'rpn_cls_logits_fpn' + str(self.min_level)
+        bbox_share_name = 'rpn_bbox_pred_fpn' + str(self.min_level)
+
+        num_anchors = len(self.anchor_generator.aspect_ratios)
+        conv_rpn_fpn = fluid.layers.conv2d(
+            input=input,
+            num_filters=self.num_chan,
+            filter_size=3,
+            padding=1,
+            act='relu',
+            name=conv_name,
+            param_attr=ParamAttr(
+                name=conv_share_name + '_w',
+                initializer=Normal(
+                    loc=0., scale=0.01)),
+            bias_attr=ParamAttr(
+                name=conv_share_name + '_b',
+                learning_rate=2.,
+                regularizer=L2Decay(0.)))
+
+        self.anchors, self.anchor_var = self.anchor_generator(
+            input=conv_rpn_fpn,
+            anchor_sizes=(self.anchor_start_size * 2.
+                          ** (feat_lvl - self.min_level),),
+            stride=(2. ** feat_lvl, 2. ** feat_lvl))
 
         cls_num_filters = num_anchors * self.num_classes
         self.rpn_cls_score = fluid.layers.conv2d(
@@ -1260,7 +1494,7 @@ class FPNRPNHeadS(RPNHead):
                  max_level=6,
                  num_classes=1):
         super(FPNRPNHeadS, self).__init__(anchor_generator, rpn_target_assign,
-                                         train_proposal, test_proposal)
+                                          train_proposal, test_proposal)
         self.anchor_start_size = anchor_start_size
         self.num_chan = num_chan
         self.min_level = min_level
@@ -1314,8 +1548,8 @@ class FPNRPNHeadS(RPNHead):
         self.anchors, self.anchor_var = self.anchor_generator(
             input=conv_rpn_fpn,
             anchor_sizes=(self.anchor_start_size * 2.
-                          **(feat_lvl - self.min_level), ),
-            stride=(2.**feat_lvl, 2.**feat_lvl))
+                          ** (feat_lvl - self.min_level),),
+            stride=(2. ** feat_lvl, 2. ** feat_lvl))
 
         cls_num_filters = num_anchors * self.num_classes
         self.rpn_cls_score = fluid.layers.conv2d(
@@ -1457,6 +1691,7 @@ class FPNRPNHeadS(RPNHead):
         anchor_var = fluid.layers.concat(anchor_vars)
         return rpn_cls, rpn_bbox, anchors, anchor_var
 
+
 @register
 class FPNRPNHeadM(RPNHead):
     """
@@ -1490,7 +1725,7 @@ class FPNRPNHeadM(RPNHead):
                  max_level=6,
                  num_classes=1):
         super(FPNRPNHeadM, self).__init__(anchor_generator, rpn_target_assign,
-                                         train_proposal, test_proposal)
+                                          train_proposal, test_proposal)
         self.anchor_start_size = anchor_start_size
         self.num_chan = num_chan
         self.min_level = min_level
@@ -1544,8 +1779,8 @@ class FPNRPNHeadM(RPNHead):
         self.anchors, self.anchor_var = self.anchor_generator(
             input=conv_rpn_fpn,
             anchor_sizes=(self.anchor_start_size * 2.
-                          **(feat_lvl - self.min_level), ),
-            stride=(2.**feat_lvl, 2.**feat_lvl))
+                          ** (feat_lvl - self.min_level),),
+            stride=(2. ** feat_lvl, 2. ** feat_lvl))
 
         cls_num_filters = num_anchors * self.num_classes
         self.rpn_cls_score = fluid.layers.conv2d(
@@ -1687,6 +1922,7 @@ class FPNRPNHeadM(RPNHead):
         anchors = fluid.layers.concat(anchors)
         anchor_var = fluid.layers.concat(anchor_vars)
         return rpn_cls, rpn_bbox, anchors, anchor_var
+
 
 @register
 class FPNRPNHeadL(RPNHead):
@@ -1721,7 +1957,7 @@ class FPNRPNHeadL(RPNHead):
                  max_level=6,
                  num_classes=1):
         super(FPNRPNHeadL, self).__init__(anchor_generator, rpn_target_assign,
-                                         train_proposal, test_proposal)
+                                          train_proposal, test_proposal)
         self.anchor_start_size = anchor_start_size
         self.num_chan = num_chan
         self.min_level = min_level
@@ -1775,8 +2011,8 @@ class FPNRPNHeadL(RPNHead):
         self.anchors, self.anchor_var = self.anchor_generator(
             input=conv_rpn_fpn,
             anchor_sizes=(self.anchor_start_size * 2.
-                          **(feat_lvl - self.min_level), ),
-            stride=(2.**feat_lvl, 2.**feat_lvl))
+                          ** (feat_lvl - self.min_level),),
+            stride=(2. ** feat_lvl, 2. ** feat_lvl))
 
         cls_num_filters = num_anchors * self.num_classes
         self.rpn_cls_score = fluid.layers.conv2d(
@@ -1918,4 +2154,4 @@ class FPNRPNHeadL(RPNHead):
         anchors = fluid.layers.concat(anchors)
         anchor_var = fluid.layers.concat(anchor_vars)
         return rpn_cls, rpn_bbox, anchors, anchor_var
- 
+
