@@ -102,8 +102,6 @@ class MSMaskRCNN(object):
         # RPN proposals
         # 添加多路rpn再做特征融合
         rois = self.rpn_head.get_proposals(body_feats, im_info, mode=mode)
-        print(im_info)
-        exit()
         if mode == 'train':
             rpn_loss = self.rpn_head.get_loss(im_info, feed_vars['gt_bbox'],
                                               feed_vars['is_crowd'])
