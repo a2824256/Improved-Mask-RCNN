@@ -417,7 +417,6 @@ class RPNHeadS(object):
             im_info=im_info,
             anchors=self.anchor,
             variances=self.anchor_var)
-        print("---------------")
         if score:
             return rpn_rois, rpn_roi_probs
         else:
@@ -1027,7 +1026,6 @@ class FPNRPNHead(RPNHead):
                  rpn_target_assign=RPNTargetAssign().__dict__,
                  train_proposal=GenerateProposals(12000, 2000).__dict__,
                  test_proposal=GenerateProposals().__dict__,
-                 mapping_relation=None,
                  anchor_start_size=32,
                  num_chan=256,
                  min_level=2,
@@ -1215,8 +1213,6 @@ class FPNRPNHead(RPNHead):
         anchors = []
         anchor_vars = []
         for i in range(len(self.fpn_rpn_list)):
-            print(self.fpn_rpn_list[i][0].shape)
-            exit()
             single_input = self._transform_input(
                 self.fpn_rpn_list[i][0], self.fpn_rpn_list[i][1],
                 self.anchors_list[i], self.anchor_var_list[i])
@@ -1262,6 +1258,7 @@ class MSFPNRPNHead(RPNHead):
                  num_chan=256,
                  min_level=2,
                  max_level=6,
+                 mapping_relation=[0, 0, 1, 2, 2],
                  num_classes=1):
         super(MSFPNRPNHead, self).__init__(anchor_generator, rpn_target_assign,
                                          train_proposal, test_proposal)
@@ -1270,12 +1267,12 @@ class MSFPNRPNHead(RPNHead):
         self.min_level = min_level
         self.max_level = max_level
         self.num_classes = num_classes
-
+        self.mapping_relation = mapping_relation
         self.fpn_rpn_list = []
         self.anchors_list = []
         self.anchor_var_list = []
 
-    def _get_output(self, input, feat_lvl):
+    def _get_output(self, input, feat_lvl, anchor_index):
         """
         Get anchor and FPN RPN head output at one level.
 
@@ -1297,8 +1294,7 @@ class MSFPNRPNHead(RPNHead):
         conv_share_name = 'conv_rpn_fpn' + str(self.min_level)
         cls_share_name = 'rpn_cls_logits_fpn' + str(self.min_level)
         bbox_share_name = 'rpn_bbox_pred_fpn' + str(self.min_level)
-
-        num_anchors = len(self.anchor_generator.aspect_ratios)
+        num_anchors = len(self.anchor_generator.aspect_ratios[anchor_index])
         conv_rpn_fpn = fluid.layers.conv2d(
             input=input,
             num_filters=self.num_chan,
@@ -1319,6 +1315,8 @@ class MSFPNRPNHead(RPNHead):
             input=conv_rpn_fpn,
             anchor_sizes=(self.anchor_start_size * 2.
                           ** (feat_lvl - self.min_level),),
+            aspect_ratios=self.anchor_generator.aspect_ratios[anchor_index],
+            variance=self.anchor_generator.variance[anchor_index],
             stride=(2. ** feat_lvl, 2. ** feat_lvl))
 
         cls_num_filters = num_anchors * self.num_classes
@@ -1352,7 +1350,7 @@ class MSFPNRPNHead(RPNHead):
                 regularizer=L2Decay(0.)))
         return self.rpn_cls_score, self.rpn_bbox_pred
 
-    def _get_single_proposals(self, body_feat, im_info, feat_lvl, mode='train'):
+    def _get_single_proposals(self, body_feat, im_info, feat_lvl, anchor_index, mode='train'):
         """
         Get proposals in one level according to the output of fpn rpn head
 
@@ -1370,7 +1368,7 @@ class MSFPNRPNHead(RPNHead):
         """
 
         rpn_cls_score_fpn, rpn_bbox_pred_fpn = self._get_output(body_feat,
-                                                                feat_lvl)
+                                                                feat_lvl, anchor_index)
 
         prop_op = self.train_proposal if mode == 'train' else self.test_proposal
         if self.num_classes == 1:
@@ -1419,10 +1417,11 @@ class MSFPNRPNHead(RPNHead):
         roi_probs_list = []
         fpn_feat_names = list(fpn_feats.keys())
         for lvl in range(self.min_level, self.max_level + 1):
+            anchor_index = self.mapping_relation[lvl - 2]
             fpn_feat_name = fpn_feat_names[self.max_level - lvl]
             fpn_feat = fpn_feats[fpn_feat_name]
             rois_fpn, roi_probs_fpn = self._get_single_proposals(
-                fpn_feat, im_info, lvl, mode)
+                fpn_feat, im_info, lvl, anchor_index, mode)
             self.fpn_rpn_list.append((self.rpn_cls_score, self.rpn_bbox_pred))
             rois_list.append(rois_fpn)
             roi_probs_list.append(roi_probs_fpn)
@@ -1445,8 +1444,6 @@ class MSFPNRPNHead(RPNHead):
         anchors = []
         anchor_vars = []
         for i in range(len(self.fpn_rpn_list)):
-            print(self.fpn_rpn_list[i][0].shape)
-            exit()
             single_input = self._transform_input(
                 self.fpn_rpn_list[i][0], self.fpn_rpn_list[i][1],
                 self.anchors_list[i], self.anchor_var_list[i])
