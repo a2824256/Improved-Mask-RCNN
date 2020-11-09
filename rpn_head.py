@@ -1310,11 +1310,10 @@ class MSFPNRPNHead(RPNHead):
                 name=conv_share_name + '_b',
                 learning_rate=2.,
                 regularizer=L2Decay(0.)))
-
+        print(tuple(self.anchor_generator.anchor_sizes[anchor_index]))
         self.anchors, self.anchor_var = self.anchor_generator(
             input=conv_rpn_fpn,
-            anchor_sizes=(self.anchor_start_size * 2.
-                          ** (feat_lvl - self.min_level),),
+            anchor_sizes=tuple(self.anchor_generator.anchor_sizes[anchor_index]),
             aspect_ratios=self.anchor_generator.aspect_ratios[anchor_index],
             variance=self.anchor_generator.variance[anchor_index],
             stride=(2. ** feat_lvl, 2. ** feat_lvl))
